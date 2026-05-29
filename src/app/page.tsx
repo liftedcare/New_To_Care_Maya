@@ -19,52 +19,7 @@ const MicIcon = () => (
   </svg>
 );
 
-export default function Home() {
-  useEffect(() => {
-    const els = document.querySelectorAll<HTMLElement>('.reveal');
-    const io = new IntersectionObserver((entries) => {
-      entries.forEach((e, i) => {
-        if (e.isIntersecting) {
-          setTimeout(() => (e.target as HTMLElement).classList.add('in'), i * 60);
-          io.unobserve(e.target);
-        }
-      });
-    }, { threshold: 0.12 });
-    els.forEach(el => io.observe(el));
-
-    const tabs = document.querySelectorAll<HTMLElement>('.ac-tab');
-    const panels = document.querySelectorAll<HTMLElement>('.ac-persona');
-    const handlers = new Map<HTMLElement, () => void>();
-    tabs.forEach(tab => {
-      const handler = () => {
-        const target = tab.dataset.persona;
-        tabs.forEach(t => {
-          const on = t.dataset.persona === target;
-          t.classList.toggle('is-active', on);
-          t.setAttribute('aria-selected', on ? 'true' : 'false');
-        });
-        panels.forEach(p => p.classList.toggle('is-active', p.dataset.persona === target));
-        const active = document.querySelector<HTMLElement>(`.ac-persona[data-persona="${target}"]`);
-        if (active) {
-          active.querySelectorAll<HTMLElement>('.ac-msg, .p-row').forEach(el => {
-            el.style.animation = 'none';
-            void el.offsetHeight;
-            el.style.animation = '';
-          });
-        }
-      };
-      handlers.set(tab, handler);
-      tab.addEventListener('click', handler);
-    });
-    return () => {
-      io.disconnect();
-      handlers.forEach((h, t) => t.removeEventListener('click', h));
-    };
-  }, []);
-
-  return (
-    <>
-      <style>{`
+const _css = `
         :root{--bg:#ffffff;--bg-2:#f7f6ff;--paper:#ffffff;--ink:#1a1466;--ink-soft:#3a328a;--ink-mute:#7a72b8;--clay:#4838d4;--clay-deep:#2a1f8f;--moss:#16a34a;--cyan:#5eead4;--rule:#e8e6f5;--rule-strong:#d4d0eb;--shadow:0 1px 0 #1a146608,0 24px 60px -28px #1a146633;--display:"Manrope",ui-sans-serif,system-ui,sans-serif;--body:"Inter",ui-sans-serif,system-ui,sans-serif;--mono:"JetBrains Mono",ui-monospace,monospace}
         html{scroll-behavior:smooth}
         body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:17px;line-height:1.55;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;overflow-x:hidden}
@@ -236,7 +191,7 @@ export default function Home() {
         .how-step p{color:#d9d4ff;font-size:15px;margin:0;line-height:1.55}
         .testimonial{text-align:center;padding:120px 0}
         .testimonial blockquote{font-family:var(--display);font-style:normal;font-weight:600;font-size:clamp(28px,4.5vw,56px);line-height:1.1;letter-spacing:-0.035em;margin:0 auto 40px;max-width:22ch;color:var(--ink)}
-        .testimonial blockquote::before{content:"\201C";display:block;font-size:120px;line-height:0.6;color:var(--clay);margin-bottom:24px;font-style:normal}
+        .testimonial blockquote::before{content:"C";display:block;font-size:120px;line-height:0.6;color:var(--clay);margin-bottom:24px;font-style:normal}
         .testi-name{font-family:var(--mono);font-size:12px;letter-spacing:0.14em;text-transform:uppercase;color:var(--ink-mute)}
         .testi-name strong{color:var(--ink);font-weight:500;margin-right:10px}
         .final{background:linear-gradient(135deg,#ff6ec4 0%,#a855f7 50%,#5eead4 100%);color:#1a1466;border-radius:32px;margin:0 28px 80px;padding:96px 48px;text-align:center;position:relative;overflow:hidden}
@@ -269,7 +224,54 @@ export default function Home() {
           footer{flex-direction:column;align-items:center;text-align:center;gap:20px;padding:40px 0 56px}footer nav{flex-wrap:wrap;justify-content:center;gap:18px 22px}
         }
         @media(max-width:380px){.wrap{padding:0 16px}h1.headline{font-size:38px}}
-      `}</style>
+      `;
+
+export default function Home() {
+  useEffect(() => {
+    const els = document.querySelectorAll<HTMLElement>('.reveal');
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach((e, i) => {
+        if (e.isIntersecting) {
+          setTimeout(() => (e.target as HTMLElement).classList.add('in'), i * 60);
+          io.unobserve(e.target);
+        }
+      });
+    }, { threshold: 0.12 });
+    els.forEach(el => io.observe(el));
+
+    const tabs = document.querySelectorAll<HTMLElement>('.ac-tab');
+    const panels = document.querySelectorAll<HTMLElement>('.ac-persona');
+    const handlers = new Map<HTMLElement, () => void>();
+    tabs.forEach(tab => {
+      const handler = () => {
+        const target = tab.dataset.persona;
+        tabs.forEach(t => {
+          const on = t.dataset.persona === target;
+          t.classList.toggle('is-active', on);
+          t.setAttribute('aria-selected', on ? 'true' : 'false');
+        });
+        panels.forEach(p => p.classList.toggle('is-active', p.dataset.persona === target));
+        const active = document.querySelector<HTMLElement>(`.ac-persona[data-persona="${target}"]`);
+        if (active) {
+          active.querySelectorAll<HTMLElement>('.ac-msg, .p-row').forEach(el => {
+            el.style.animation = 'none';
+            void el.offsetHeight;
+            el.style.animation = '';
+          });
+        }
+      };
+      handlers.set(tab, handler);
+      tab.addEventListener('click', handler);
+    });
+    return () => {
+      io.disconnect();
+      handlers.forEach((h, t) => t.removeEventListener('click', h));
+    };
+  }, []);
+
+  return (
+    <>
+      <style>{_css}</style>
 
       <div className="wrap">
         <nav className="top">
