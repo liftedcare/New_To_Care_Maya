@@ -89,8 +89,11 @@ export async function POST(request: NextRequest) {
     .eq('id', applicationId)
     .single()
 
+  const escXml = (s: string) =>
+    s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;')
+
   const transcriptXml = sanitized
-    .map(t => `<turn role="${t.role === 'assistant' ? 'maya' : 'candidate'}">${t.content}</turn>`)
+    .map(t => `<turn role="${t.role === 'assistant' ? 'maya' : 'candidate'}">${escXml(t.content)}</turn>`)
     .join('\n')
 
   const scoringPrompt = `You are scoring a candidate screening call for a care worker role.

@@ -1,6 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { cookies } from 'next/headers'
 
 export async function GET(_req: NextRequest) {
+  // Session guard — only applicants who have submitted the form can request a token
+  const cookieStore = await cookies()
+  const sessionCookie = cookieStore.get('appSession')
+  if (!sessionCookie?.value) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
   const apiKey = process.env.HUME_API_KEY
   const secretKey = process.env.HUME_SECRET_KEY
 
