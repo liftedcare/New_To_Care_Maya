@@ -1,7 +1,16 @@
 'use client';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+
+async function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve((reader.result as string).split(',')[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
 
 const MayaLogo = () => (
   <svg viewBox="0 0 110 36" fill="none" xmlns="http://www.w3.org/2000/svg" height="26">
@@ -110,6 +119,130 @@ const _css = `
 export default function ApplyPage() {
   const router = useRouter();
   const completedRef = useRef(new Set<number>());
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
+  // Kept in a ref so the useEffect event handler always calls the latest version
+  // without needing to re-register listeners when isSubmitting changes.
+  const doSubmitRef = useRef<() => Promise<void>>(async () => {});
+  doSubmitRef.current = async () => {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    setSubmitError(null);
+
+    try {
+      const nameVal   = (document.getElementById('name') as HTMLInputElement | null)?.value.trim() ?? '';
+      const mobileVal = (document.getElementById('mobile') as HTMLInputElement | null)?.value.trim() ?? '';
+      const emailVal  = (document.getElementById('email') as HTMLInputElement | null)?.value.trim() ?? '';
+      const genderVal = (document.getElementById('gender') as HTMLSelectElement | null)?.value ?? '';
+      const immigrationEl  = document.getElementById('immigration') as HTMLSelectElement | null;
+      const immigrationVal = immigrationEl?.value ?? '';
+      const postcodeVal = (document.getElementById('postcode') as HTMLInputElement | null)?.value.trim() ?? '';
+      const licenceVal  = document.querySelector<HTMLInputElement>('[name="licence"]:checked')?.value ?? '';
+
+      // Visa fields (only relevant when immigration === 'visa')
+      const visaRadio = document.querySelector<HTMLInputElement>('#visaOptions input:checked');
+      const visaTypeRaw = visaRadio?.value ?? '';
+      // Map internal radio values to API-expected values
+      const visaTypeMap: Record<string, string> = {
+        Graduate: 'Graduate',
+        Student: 'Student',
+        'Skilled worker': 'Skilled worker',
+        'Health and social care': 'Health and social care',
+        other: 'Other',
+      };
+      const visaType = visaTypeMap[visaTypeRaw] ?? visaTypeRaw;
+      const otherVisaDescription = visaTypeRaw === 'other'
+        ? (document.getElementById('visaOtherText') as HTMLInputElement | null)?.value.trim() ?? ''
+        : '';
+
+      // CV file
+      const cvInput = document.getElementById('cv') as HTMLInputElement | null;
+      const cvFile = cvInput?.files?.[0];
+
+      // Client-side CV guard (server re-validates but this improves UX)
+      if (cvFile) {
+        const ext = cvFile.name.split('.').pop()?.toLowerCase() ?? '';
+        const allowedTypes = ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+        if (!['pdf', 'docx'].includes(ext) || !allowedTypes.includes(cvFile.type)) {
+          setSubmitError('Please upload a PDF or DOCX file only.');
+          setIsSubmitting(false);
+          return;
+        }
+        if (cvFile.size > 5 * 1024 * 1024) {
+          setSubmitError('CV must be under 5MB.');
+          setIsSubmitting(false);
+          return;
+        }
+      }
+
+      let cvFilePayload: { base64: string; name: string; type: string } | undefined;
+      if (cvFile) {
+        cvFilePayload = {
+          base64: await fileToBase64(cvFile),
+          name: cvFile.name,
+          type: cvFile.type,
+        };
+      }
+
+      const payload: Record<string, unknown> = {
+        fullName: nameVal,
+        mobileNumber: mobileVal,
+        email: emailVal,
+        postcode: postcodeVal,
+        genderIdentity: genderVal,
+        immigrationStatus: immigrationVal === 'visa' ? 'On a Visa'
+          : immigrationVal === 'citizen' ? 'UK Citizen'
+          : immigrationVal === 'ilr' ? 'Indefinite Leave to Remain'
+          : immigrationVal,
+        drivingLicence: licenceVal === 'none' ? 'No Driving Licence'
+          : licenceVal === 'full' ? 'Full UK Driving Licence'
+          : licenceVal === 'provisional' ? 'Provisional Licence'
+          : licenceVal,
+        ...(visaType ? { visaType } : {}),
+        ...(otherVisaDescription ? { otherVisaDescription } : {}),
+        ...(cvFilePayload ? { cvFile: cvFilePayload } : {}),
+      };
+
+      const res = await fetch('/api/submit-application', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (res.status === 409) {
+        const data = await res.json();
+        setSubmitError(
+          data.field === 'email'
+            ? "You've already applied with this email address. Contact us if you think this is an error."
+            : "You've already applied with this mobile number. Contact us if you think this is an error."
+        );
+        setIsSubmitting(false);
+        return;
+      }
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setSubmitError((data as Record<string, string>).error ?? 'Something went wrong. Please try again.');
+        setIsSubmitting(false);
+        return;
+      }
+
+      const data = await res.json() as { applicationId: string; stage: string };
+
+      const firstName = nameVal.split(/\s+/)[0] ?? '';
+      try {
+        sessionStorage.setItem('maya_first_name', firstName);
+        sessionStorage.setItem('maya_app_id', data.applicationId);
+      } catch { void 0; }
+
+      router.push('/call');
+    } catch (err) {
+      console.error('Submit error:', err);
+      setSubmitError('Something went wrong. Please try again.');
+      setIsSubmitting(false);
+    }
+  };
 
   useEffect(() => {
     const completed = completedRef.current;
@@ -157,10 +290,7 @@ export default function ApplyPage() {
             if (el) scrollToEl(el);
           });
         } else {
-          const nameInput = document.getElementById('name') as HTMLInputElement;
-          const first = (nameInput?.value.trim().split(/\s+/)[0]) || '';
-          try { sessionStorage.setItem('maya_first_name', first); } catch (e) { void e; }
-          router.push('/call');
+          void doSubmitRef.current();
         }
       };
       continueHandlers.set(btn, handler);
@@ -435,11 +565,16 @@ export default function ApplyPage() {
                 </label>
               </div>
             </div>
-            <button className="btn" data-continue="3">
-              Submit application
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M5 12h14M13 6l6 6-6 6"/>
-              </svg>
+            {submitError && (
+              <p style={{color:'#be185d',fontSize:'14px',marginTop:'12px',lineHeight:'1.4'}}>{submitError}</p>
+            )}
+            <button className="btn" data-continue="3" disabled={isSubmitting} style={isSubmitting ? {opacity:0.6,cursor:'not-allowed'} : {}}>
+              {isSubmitting ? 'Submitting…' : 'Submit application'}
+              {!isSubmitting && (
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M5 12h14M13 6l6 6-6 6"/>
+                </svg>
+              )}
             </button>
           </div>
         </section>
