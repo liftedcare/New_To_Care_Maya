@@ -106,6 +106,7 @@ function CallContent() {
 
   // Read sessionStorage on mount (safe: client only)
   useEffect(() => {
+    history.replaceState(null, '', '/call?step=5');
     try {
       const n  = (sessionStorage.getItem('maya_first_name') ?? '').trim();
       const id = sessionStorage.getItem('maya_app_id') ?? null;
@@ -134,6 +135,7 @@ function CallContent() {
   // Sync body.in-call class — drives all CSS-based UI toggles
   useEffect(() => {
     document.body.classList.toggle('in-call', isConnected);
+    if (isConnected) history.replaceState(null, '', '/call?step=6');
   }, [isConnected]);
 
   // Timer — starts when connected, stops otherwise
@@ -214,6 +216,7 @@ function CallContent() {
 
     disconnect();
     setCallDone(true);
+    history.replaceState(null, '', '/call?step=7');
 
     // Fire-and-forget assessment — non-blocking so the thank-you screen shows immediately
     if (appId && transcript.length > 0) {

@@ -227,6 +227,8 @@ const _css = `
       `;
 
 export default function Home() {
+  useEffect(() => { history.replaceState(null, '', '/?step=1'); }, []);
+
   useEffect(() => {
     const els = document.querySelectorAll<HTMLElement>('.reveal');
     const io = new IntersectionObserver((entries) => {

@@ -236,13 +236,15 @@ export default function ApplyPage() {
         sessionStorage.setItem('maya_app_id', data.applicationId);
       } catch { void 0; }
 
-      router.push('/call');
+      router.push('/call?step=5');
     } catch (err) {
       console.error('Submit error:', err);
       setSubmitError('Something went wrong. Please try again.');
       setIsSubmitting(false);
     }
   };
+
+  useEffect(() => { history.replaceState(null, '', '/apply?step=2'); }, []);
 
   useEffect(() => {
     const completed = completedRef.current;
@@ -284,6 +286,8 @@ export default function ApplyPage() {
         const n = parseInt(btn.dataset.continue!, 10);
         completed.add(n);
         if (n < 3) {
+          // step 1 complete → step=3 (right to work), step 2 complete → step=4 (driving licence)
+          history.replaceState(null, '', `/apply?step=${n + 2}`);
           openStep(n + 1);
           requestAnimationFrame(() => {
             const el = document.getElementById(`step-${n + 1}`);
