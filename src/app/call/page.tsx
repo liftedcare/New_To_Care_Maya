@@ -46,11 +46,16 @@ const _css = `
         .btn svg{width:19px;height:19px}
         .btn:hover{background:var(--clay-deep);transform:translateY(-1px)}.btn:active{transform:translateY(0)}
         .btn:disabled{opacity:0.6;cursor:not-allowed;transform:none}
-        .btn-end{width:100%;background:#fff;color:var(--ink);border:1px solid var(--rule-strong);font-family:var(--display);font-weight:600;font-size:16px;padding:16px;border-radius:999px;display:none;align-items:center;justify-content:center;gap:10px;transition:border-color .2s,color .2s,background .2s}
-        .btn-end .x{width:18px;height:18px;border-radius:50%;background:#be185d;color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px}
+        .call-actions{display:none;gap:10px;margin-bottom:0}
+        body.in-call .call-actions{display:flex}
+        .btn-end{flex:1;background:#fff;color:var(--ink);border:1px solid var(--rule-strong);font-family:var(--display);font-weight:600;font-size:16px;padding:16px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;gap:10px;transition:border-color .2s,color .2s,background .2s}
+        .btn-end .x{width:18px;height:18px;border-radius:50%;background:#be185d;color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;flex-shrink:0}
         .btn-end:hover{border-color:#be185d;color:#be185d}
+        .btn-mute{flex:0 0 auto;width:54px;height:54px;border-radius:50%;background:#fff;border:1px solid var(--rule-strong);display:inline-flex;align-items:center;justify-content:center;transition:border-color .2s,background .2s,color .2s;color:var(--ink-soft)}
+        .btn-mute svg{width:18px;height:18px}
+        .btn-mute:hover{border-color:var(--clay);color:var(--clay)}
+        .btn-mute.muted{background:#fee2e2;border-color:#fca5a5;color:#b91c1c}
         body.in-call .btn-start{display:none}
-        body.in-call .btn-end{display:inline-flex}
         .footnote{font-size:12px;color:var(--ink-mute);margin:18px auto 0;max-width:36ch;line-height:1.4}
         .thank-you{padding:32px 0}
         .thank-you h2{font-family:var(--display);font-weight:700;font-size:24px;color:var(--ink);margin:0 0 12px}
@@ -81,7 +86,12 @@ export default function CallPage() {
 
 // Inner shell: consumes useVoice() and owns all call logic
 function CallContent() {
-  const { status, connect, disconnect, messages, sendUserInput, pauseAssistant, resumeAssistant, error: humeError } = useVoice();
+  const {
+    status, connect, disconnect, messages,
+    sendSessionSettings,
+    mute, unmute, isMuted,
+    error: humeError,
+  } = useVoice();
 
   const [firstName, setFirstName] = useState('');
   const [appId, setAppId]         = useState<string | null>(null);
@@ -89,9 +99,9 @@ function CallContent() {
   const [callError, setCallError] = useState<string | null>(null);
   const [timerDisplay, setTimerDisplay] = useState('00:00');
 
-  const timerRef       = useRef<ReturnType<typeof setInterval> | null>(null);
-  const tRef           = useRef(0);
-  const contextSentRef = useRef(false);
+  const timerRef        = useRef<ReturnType<typeof setInterval> | null>(null);
+  const tRef            = useRef(0);
+  const contextSentRef  = useRef(false);
   const contextBlockRef = useRef<string | null>(null);
 
   // Read sessionStorage on mount (safe: client only)
@@ -143,13 +153,12 @@ function CallContent() {
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [isConnected]);
 
-  // Send candidate context once — exactly once — when connection opens
+  // Inject candidate context via session settings (system prompt append) — not sendUserInput
+  // This avoids the "long UserInput" hallucination warning from Hume
   useEffect(() => {
     if (status.value === 'connected' && !contextSentRef.current && contextBlockRef.current) {
       contextSentRef.current = true;
-      pauseAssistant();
-      sendUserInput(contextBlockRef.current);
-      setTimeout(() => resumeAssistant(), 1500);
+      sendSessionSettings({ system_prompt: contextBlockRef.current });
     }
     if (status.value === 'disconnected') {
       contextSentRef.current = false;
@@ -225,7 +234,7 @@ function CallContent() {
   const statusText = isConnecting
     ? 'Connecting to Maya…'
     : isConnected
-      ? 'Connected · Maya is listening'
+      ? isMuted ? 'Muted · Maya cannot hear you' : 'Connected · Maya is listening'
       : isError
         ? 'Connection error — please try again'
         : callDone
@@ -277,10 +286,31 @@ function CallContent() {
               {isConnecting ? 'Connecting…' : 'Start Call with Maya'}
             </button>
 
-            <button className="btn-end" onClick={endCall}>
-              <span className="x">✕</span>
-              End call
-            </button>
+            <div className="call-actions">
+              <button className="btn-end" onClick={endCall}>
+                <span className="x">✕</span>
+                End call
+              </button>
+              <button
+                className={`btn-mute${isMuted ? ' muted' : ''}`}
+                onClick={isMuted ? unmute : mute}
+                aria-label={isMuted ? 'Unmute microphone' : 'Mute microphone'}
+                title={isMuted ? 'Unmute' : 'Mute'}
+              >
+                {isMuted ? (
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="1" y1="1" x2="23" y2="23"/>
+                    <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/>
+                    <path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23M12 19v3M8 23h8"/>
+                  </svg>
+                ) : (
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="9" y="3" width="6" height="12" rx="3"/>
+                    <path d="M5 11a7 7 0 0 0 14 0M12 18v3M8 23h8"/>
+                  </svg>
+                )}
+              </button>
+            </div>
 
             {callError && <p className="err-msg">{callError}</p>}
 
