@@ -114,6 +114,10 @@ const _css = `
         .visa-other.show{display:block}
         @media(min-width:560px){.overlay{align-items:center;padding:24px}.modal{border-radius:24px}.modal-grab{display:none}}
         @media(max-width:380px){main,.app-head-inner,.progress{padding-left:16px;padding-right:16px}.step-title{font-size:24px}}
+        .field-error{display:none;color:#be185d;font-size:13px;margin-top:7px;line-height:1.4;font-weight:500}
+        .field-error.show{display:block}
+        .input.err{border-color:#be185d !important}
+        .input.err:focus{box-shadow:0 0 0 4px #be185d22 !important}
       `;
 
 export default function ApplyPage() {
@@ -279,11 +283,94 @@ export default function ApplyPage() {
       window.scrollTo({ top: y, behavior: 'smooth' });
     }
 
+    // Validation helpers
+    function showErr(inputId: string, msg: string): HTMLElement | null {
+      const errEl = document.getElementById(`${inputId}-error`);
+      const inputEl = document.getElementById(inputId);
+      if (errEl) { errEl.textContent = msg; errEl.classList.add('show'); }
+      if (inputEl) inputEl.classList.add('err');
+      return inputEl;
+    }
+    function clrErr(inputId: string) {
+      const errEl = document.getElementById(`${inputId}-error`);
+      const inputEl = document.getElementById(inputId);
+      if (errEl) { errEl.textContent = ''; errEl.classList.remove('show'); }
+      if (inputEl) inputEl.classList.remove('err');
+    }
+    function clrAll() {
+      document.querySelectorAll<HTMLElement>('.field-error.show').forEach(e => {
+        e.textContent = ''; e.classList.remove('show');
+      });
+      document.querySelectorAll<HTMLElement>('.input.err').forEach(e => e.classList.remove('err'));
+    }
+
     // Continue / Submit buttons
     const continueHandlers = new Map<HTMLElement, () => void>();
     document.querySelectorAll<HTMLElement>('.btn[data-continue]').forEach(btn => {
       const handler = () => {
+        clrAll();
         const n = parseInt(btn.dataset.continue!, 10);
+        let firstErr: HTMLElement | null = null;
+
+        if (n === 1) {
+          const nameVal   = (document.getElementById('name') as HTMLInputElement | null)?.value.trim() ?? '';
+          const mobileVal = (document.getElementById('mobile') as HTMLInputElement | null)?.value.trim() ?? '';
+          const emailVal  = (document.getElementById('email') as HTMLInputElement | null)?.value.trim() ?? '';
+          const genderVal = (document.getElementById('gender') as HTMLSelectElement | null)?.value ?? '';
+
+          if (!nameVal) {
+            firstErr = firstErr ?? showErr('name', 'Please enter your full name.');
+          } else if (nameVal.split(/\s+/).filter(Boolean).length < 2) {
+            firstErr = firstErr ?? showErr('name', 'Please enter both your first and last name.');
+          }
+          if (!mobileVal) {
+            firstErr = firstErr ?? showErr('mobile', 'Please enter your mobile number.');
+          } else if (!/^(\+44|0)[0-9\s\-().]{7,19}$/.test(mobileVal)) {
+            firstErr = firstErr ?? showErr('mobile', 'Please enter a valid UK mobile number (e.g. 07700 900000).');
+          }
+          if (!emailVal) {
+            firstErr = firstErr ?? showErr('email', 'Please enter your email address.');
+          } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailVal)) {
+            firstErr = firstErr ?? showErr('email', 'Please enter a valid email address (e.g. name@example.com).');
+          }
+          if (!genderVal) {
+            firstErr = firstErr ?? showErr('gender', 'Please select your gender identity.');
+          }
+        }
+
+        if (n === 2) {
+          const immigrationVal = (document.getElementById('immigration') as HTMLSelectElement | null)?.value ?? '';
+          const postcodeVal    = (document.getElementById('postcode') as HTMLInputElement | null)?.value.trim() ?? '';
+          const visaChipEl     = document.getElementById('visaChip');
+
+          if (!immigrationVal) {
+            firstErr = firstErr ?? showErr('immigration', 'Please select your immigration status.');
+          } else if (immigrationVal === 'visa' && !visaChipEl?.classList.contains('show')) {
+            firstErr = firstErr ?? showErr('immigration', 'Please confirm which visa you\'re on — tap the prompt above.');
+          }
+          if (!postcodeVal) {
+            firstErr = firstErr ?? showErr('postcode', 'Please enter your postcode.');
+          } else if (!/^[A-Z]{1,2}[0-9][0-9A-Z]?\s?[0-9][A-Z]{2}$/i.test(postcodeVal)) {
+            firstErr = firstErr ?? showErr('postcode', 'Please enter a valid UK postcode (e.g. SW1A 1AA).');
+          }
+        }
+
+        if (n === 3) {
+          const licenceVal = document.querySelector<HTMLInputElement>('[name="licence"]:checked')?.value ?? '';
+          if (!licenceVal) {
+            const licErr = document.getElementById('licence-error');
+            if (licErr) { licErr.textContent = 'Please select your driving licence status.'; licErr.classList.add('show'); }
+            firstErr = firstErr ?? document.querySelector<HTMLElement>('[name="licence"]');
+          }
+        }
+
+        if (firstErr) {
+          const fieldEl = (firstErr.closest('.field') as HTMLElement | null) ?? firstErr;
+          scrollToEl(fieldEl);
+          firstErr.focus();
+          return;
+        }
+
         completed.add(n);
         if (n < 3) {
           // step 1 complete → step=3 (right to work), step 2 complete → step=4 (driving licence)
@@ -299,6 +386,25 @@ export default function ApplyPage() {
       };
       continueHandlers.set(btn, handler);
       btn.addEventListener('click', handler);
+    });
+
+    // Clear individual field errors as the user corrects them
+    const clearHandlers = new Map<HTMLElement, () => void>();
+    (['name', 'mobile', 'email', 'gender', 'postcode', 'immigration'] as const).forEach(id => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      const h = () => clrErr(id);
+      el.addEventListener('input', h);
+      el.addEventListener('change', h);
+      clearHandlers.set(el, h);
+    });
+    document.querySelectorAll<HTMLInputElement>('[name="licence"]').forEach(r => {
+      const h = () => {
+        const licErr = document.getElementById('licence-error');
+        if (licErr) { licErr.textContent = ''; licErr.classList.remove('show'); }
+      };
+      r.addEventListener('change', h);
+      clearHandlers.set(r, h);
     });
 
     // Step head tap to reopen
@@ -409,6 +515,10 @@ export default function ApplyPage() {
 
     return () => {
       continueHandlers.forEach((h, el) => el.removeEventListener('click', h));
+      clearHandlers.forEach((h, el) => {
+        el.removeEventListener('input', h);
+        el.removeEventListener('change', h);
+      });
       headHandlers.forEach((h, el) => el.removeEventListener('click', h));
       cvInput?.removeEventListener('change', cvChange);
       dz?.removeEventListener('dragenter', dragEnter);
@@ -481,14 +591,17 @@ export default function ApplyPage() {
             <div className="field">
               <label htmlFor="name">Full name</label>
               <input className="input" type="text" id="name" placeholder="John Smith" autoComplete="name" />
+              <p className="field-error" id="name-error"></p>
             </div>
             <div className="field">
               <label htmlFor="mobile">Mobile number</label>
               <input className="input" type="tel" id="mobile" placeholder="+44 7123 456789" autoComplete="tel" />
+              <p className="field-error" id="mobile-error"></p>
             </div>
             <div className="field">
               <label htmlFor="email">Email address</label>
               <input className="input" type="email" id="email" placeholder="john.smith@email.com" autoComplete="email" />
+              <p className="field-error" id="email-error"></p>
             </div>
             <div className="field">
               <label htmlFor="gender">Gender identity</label>
@@ -502,6 +615,7 @@ export default function ApplyPage() {
                   <option>Prefer not to say</option>
                 </select>
               </div>
+              <p className="field-error" id="gender-error"></p>
             </div>
             <button className="btn" data-continue="1">Continue</button>
           </div>
@@ -531,10 +645,12 @@ export default function ApplyPage() {
                 <span id="visaChipText">Visa</span>
                 <button type="button" id="visaEdit">Change</button>
               </span>
+              <p className="field-error" id="immigration-error"></p>
             </div>
             <div className="field">
               <label htmlFor="postcode">Full UK postcode</label>
               <input className="input" type="text" id="postcode" placeholder="SW1A 1AA" autoComplete="postal-code" style={{textTransform:'uppercase'}} />
+              <p className="field-error" id="postcode-error"></p>
             </div>
             <button className="btn" data-continue="2">Continue</button>
           </div>
@@ -568,6 +684,7 @@ export default function ApplyPage() {
                   <span className="rlabel">Provisional Licence</span>
                 </label>
               </div>
+              <p className="field-error" id="licence-error"></p>
             </div>
             {submitError && (
               <p style={{color:'#be185d',fontSize:'14px',marginTop:'12px',lineHeight:'1.4'}}>{submitError}</p>
