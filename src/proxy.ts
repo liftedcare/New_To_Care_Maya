@@ -42,7 +42,7 @@ function getLimiter(path: string): Ratelimit | null {
   return limiters.get(path)!
 }
 
-export async function middleware(req: NextRequest) {
+export async function proxy(req: NextRequest) {
   const path = req.nextUrl.pathname
   const cfg = LIMITS[path]
   const limiter = getLimiter(path)
