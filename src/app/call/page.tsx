@@ -71,7 +71,7 @@ export default function CallPage() {
       </header>
       <VoiceProvider
         clearMessagesOnDisconnect={false}
-        onError={(err) => console.error('[Hume]', err.type, err.reason ?? err.message)}
+        onError={(err) => console.error('[Hume]', err.type, err.message)}
       >
         <CallContent />
       </VoiceProvider>
