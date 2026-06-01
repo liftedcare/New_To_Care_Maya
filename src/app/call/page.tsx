@@ -69,7 +69,10 @@ export default function CallPage() {
           <div className="maya-logo"><MayaLogo /></div>
         </div>
       </header>
-      <VoiceProvider clearMessagesOnDisconnect={false}>
+      <VoiceProvider
+        clearMessagesOnDisconnect={false}
+        onError={(err) => console.error('[Hume]', err.type, err.reason ?? err.message)}
+      >
         <CallContent />
       </VoiceProvider>
     </>
@@ -78,7 +81,7 @@ export default function CallPage() {
 
 // Inner shell: consumes useVoice() and owns all call logic
 function CallContent() {
-  const { status, connect, disconnect, messages, sendUserInput, pauseAssistant, resumeAssistant } = useVoice();
+  const { status, connect, disconnect, messages, sendUserInput, pauseAssistant, resumeAssistant, error: humeError } = useVoice();
 
   const [firstName, setFirstName] = useState('');
   const [appId, setAppId]         = useState<string | null>(null);
@@ -103,6 +106,20 @@ function CallContent() {
 
   const isConnected  = status.value === 'connected';
   const isConnecting = status.value === 'connecting';
+  const isError      = status.value === 'error';
+
+  // Surface async Hume errors (mic denied, socket failures, etc.) into UI
+  useEffect(() => {
+    if (humeError) {
+      if (humeError.type === 'mic_error') {
+        setCallError('Microphone access was denied. Please allow microphone access and try again.');
+      } else if (humeError.type === 'socket_error') {
+        setCallError('Connection to Maya failed. Please check your internet and try again.');
+      } else {
+        setCallError('Something went wrong. Please try again.');
+      }
+    }
+  }, [humeError]);
 
   // Sync body.in-call class — drives all CSS-based UI toggles
   useEffect(() => {
@@ -147,6 +164,7 @@ function CallContent() {
 
   const startCall = async () => {
     setCallError(null);
+    contextSentRef.current = false;
     try {
       // 1. Get Hume access token (server exchanges client credentials)
       const tokenRes = await fetch('/api/hume-token');
@@ -208,9 +226,11 @@ function CallContent() {
     ? 'Connecting to Maya…'
     : isConnected
       ? 'Connected · Maya is listening'
-      : callDone
-        ? 'Call ended — thanks for chatting with Maya'
-        : 'Maya is ready when you are';
+      : isError
+        ? 'Connection error — please try again'
+        : callDone
+          ? 'Call ended — thanks for chatting with Maya'
+          : 'Maya is ready when you are';
 
   return (
     <main>
