@@ -88,7 +88,7 @@ export default function CallPage() {
 function CallContent() {
   const {
     status, connect, disconnect, messages,
-    sendSessionSettings,
+    sendUserInput, pauseAssistant, resumeAssistant,
     mute, unmute, isMuted,
     error: humeError,
   } = useVoice();
@@ -153,12 +153,13 @@ function CallContent() {
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [isConnected]);
 
-  // Inject candidate context via session settings (system prompt append) — not sendUserInput
-  // This avoids the "long UserInput" hallucination warning from Hume
+  // Send candidate context once when connection opens
   useEffect(() => {
     if (status.value === 'connected' && !contextSentRef.current && contextBlockRef.current) {
       contextSentRef.current = true;
-      sendSessionSettings({ systemPrompt: contextBlockRef.current ?? undefined });
+      pauseAssistant();
+      sendUserInput(contextBlockRef.current);
+      setTimeout(() => resumeAssistant(), 1500);
     }
     if (status.value === 'disconnected') {
       contextSentRef.current = false;
