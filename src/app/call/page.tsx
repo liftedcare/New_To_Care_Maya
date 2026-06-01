@@ -204,10 +204,10 @@ function CallContent() {
     ? `Great, ${cap}! It's really nice to meet you.`
     : "Great, it's really nice to meet you.";
 
-  const statusHtml = isConnecting
-    ? '<span class="live-dot"></span>Connecting to Maya…'
+  const statusText = isConnecting
+    ? 'Connecting to Maya…'
     : isConnected
-      ? '<span class="live-dot"></span>Connected · Maya is listening'
+      ? 'Connected · Maya is listening'
       : callDone
         ? 'Call ended — thanks for chatting with Maya'
         : 'Maya is ready when you are';
@@ -239,10 +239,10 @@ function CallContent() {
               <div className="avatar">M</div>
             </div>
 
-            <div
-              className="status"
-              dangerouslySetInnerHTML={{ __html: statusHtml }}
-            />
+            <div className="status">
+              {(isConnecting || isConnected) && <span className="live-dot"></span>}
+              {statusText}
+            </div>
             <div className="timer">{timerDisplay}</div>
 
             <button

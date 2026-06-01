@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-server'
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
+const UK_MOBILE_RE = /^(\+44|0)[0-9\s\-().]{7,19}$/
 const ALLOWED_CV_EXTS = ['pdf', 'docx']
 const ALLOWED_CV_TYPES = [
   'application/pdf',
@@ -42,7 +43,7 @@ export async function POST(request: NextRequest) {
   // Strict allowlist validation — never trust client
   const failures: string[] = []
   if (!body.fullName || typeof body.fullName !== 'string' || body.fullName.trim().length < 2 || body.fullName.length > 120) failures.push('fullName')
-  if (!body.mobileNumber || typeof body.mobileNumber !== 'string' || body.mobileNumber.trim().length < 7 || body.mobileNumber.length > 30) failures.push('mobileNumber')
+  if (!body.mobileNumber || typeof body.mobileNumber !== 'string' || !UK_MOBILE_RE.test(body.mobileNumber.trim())) failures.push('mobileNumber')
   if (!body.email || typeof body.email !== 'string' || !EMAIL_RE.test(body.email) || body.email.length > 254) failures.push('email')
   if (!body.postcode || typeof body.postcode !== 'string' || body.postcode.trim().length < 2 || body.postcode.length > 12) failures.push('postcode')
   if (!body.genderIdentity || !ALLOWED_GENDER.includes(body.genderIdentity)) failures.push('genderIdentity')
@@ -55,7 +56,8 @@ export async function POST(request: NextRequest) {
   }
 
   if (failures.length > 0) {
-    return NextResponse.json({ error: 'Invalid or missing fields', fields: failures }, { status: 400 })
+    // Don't reveal field names to unauthenticated callers
+    return NextResponse.json({ error: 'Invalid or missing fields' }, { status: 400 })
   }
 
   // Clamp free-text fields
@@ -64,7 +66,7 @@ export async function POST(request: NextRequest) {
   }
 
   const normalizedEmail = body.email.toLowerCase().trim()
-  const normalizedMobile = body.mobileNumber.trim()
+  const normalizedMobile = body.mobileNumber.trim().replace(/\s/g, '')
 
   // Duplicate check (email)
   const { data: emailDup } = await supabaseAdmin
@@ -101,6 +103,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid CV file type. Upload a PDF or DOCX.' }, { status: 400 })
     }
 
+    // Cross-check: extension must match MIME type
+    const extMimeMap: Record<string, string> = {
+      pdf: 'application/pdf',
+      docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    }
+    if (extMimeMap[ext] !== cvType) {
+      return NextResponse.json({ error: 'File extension and type mismatch' }, { status: 400 })
+    }
+
     let buffer: Buffer
     try {
       buffer = Buffer.from(base64, 'base64')
@@ -126,7 +137,7 @@ export async function POST(request: NextRequest) {
       .upload(fileName, buffer, { contentType: cvType, upsert: false })
 
     if (uploadError) {
-      console.error('CV upload error:', uploadError)
+      console.error('CV upload error:', uploadError.message ?? 'unknown')
       return NextResponse.json({ error: 'Failed to upload CV' }, { status: 500 })
     }
 
@@ -155,10 +166,11 @@ export async function POST(request: NextRequest) {
     .single()
 
   if (insertError || !inserted) {
-    console.error('Application insert error:', insertError)
+    console.error('Application insert error:', insertError?.code ?? 'unknown')
     return NextResponse.json({ error: 'Failed to save application' }, { status: 500 })
   }
 
+  // Secure is true on Vercel (always HTTPS); false only in local HTTP dev
   const secure = process.env.NODE_ENV === 'production'
   const response = NextResponse.json({ success: true, applicationId: inserted.id, stage })
   response.cookies.set('appSession', inserted.id, {

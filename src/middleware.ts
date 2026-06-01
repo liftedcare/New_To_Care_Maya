@@ -2,11 +2,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import { Ratelimit, type Duration } from '@upstash/ratelimit'
 import { Redis } from '@upstash/redis'
 
-const LIMITS: Record<string, { limit: number; window: Duration }> = {
-  '/api/submit-application': { limit: 5,   window: '1 h' },
-  '/api/hume-token':          { limit: 100, window: '1 h' },
-  '/api/candidate-context':   { limit: 30,  window: '1 h' },
-  '/api/save-assessment':     { limit: 10,  window: '1 h' },
+// submit-application: rate-limit by IP (pre-auth)
+// authenticated routes: rate-limit by session cookie (appId) — prevents IP-rotation bypass
+const LIMITS: Record<string, { limit: number; window: Duration; bySession?: boolean }> = {
+  '/api/submit-application': { limit: 5,  window: '1 h' },
+  '/api/hume-token':         { limit: 3,  window: '1 h', bySession: true },
+  '/api/candidate-context':  { limit: 5,  window: '1 h', bySession: true },
+  '/api/save-assessment':    { limit: 3,  window: '1 h', bySession: true },
 }
 
 const redis =
@@ -42,15 +44,30 @@ function getLimiter(path: string): Ratelimit | null {
 
 export async function middleware(req: NextRequest) {
   const path = req.nextUrl.pathname
+  const cfg = LIMITS[path]
   const limiter = getLimiter(path)
 
-  if (limiter) {
-    const ip =
-      req.headers.get('x-real-ip') ??
-      req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
-      'unknown'
+  if (limiter && cfg) {
+    let identifier: string
 
-    const { success } = await limiter.limit(ip)
+    if (cfg.bySession) {
+      // Authenticated routes: limit by session cookie to prevent IP-rotation bypass
+      const session = req.cookies.get('appSession')?.value
+      if (!session) {
+        // No session — will be caught by the route's own auth guard; pass through
+        return NextResponse.next()
+      }
+      identifier = `sess:${session}`
+    } else {
+      // Pre-auth routes: limit by IP
+      // Trust x-forwarded-for set by Vercel's CDN; do not read x-real-ip (spoofable)
+      const ip =
+        req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
+        'unknown'
+      identifier = `ip:${ip}`
+    }
+
+    const { success } = await limiter.limit(identifier)
     if (!success) {
       return NextResponse.json(
         { error: 'Too many requests. Please try again later.' },

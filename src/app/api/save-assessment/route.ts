@@ -8,6 +8,13 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const VALID_ROLES = new Set(['user', 'assistant'])
 const MAX_TRANSCRIPT_TURNS = 200
 const MAX_TURN_LENGTH = 4000
+const MAX_EVIDENCE_LENGTH = 600
+const MAX_SUMMARY_LENGTH = 800
+const VALID_RECOMMENDATIONS = new Set([
+  'Proceed to interview',
+  'Hold for review',
+  'Do not progress',
+])
 
 interface TranscriptTurn {
   role: string
@@ -40,14 +47,14 @@ export async function POST(request: NextRequest) {
 
   const { applicationId, transcript } = body
 
-  if (!applicationId || typeof applicationId !== 'string' || !UUID_RE.test(applicationId)) {
+  if (!applicationId || typeof applicationId !== 'string' || applicationId.length !== 36 || !UUID_RE.test(applicationId)) {
     return NextResponse.json({ error: 'Invalid applicationId' }, { status: 400 })
   }
 
-  // Session guard
+  // Session guard — normalize to lowercase to prevent case-sensitivity bypass
   const cookieStore = await cookies()
   const sessionCookie = cookieStore.get('appSession')
-  if (!sessionCookie || sessionCookie.value !== applicationId) {
+  if (!sessionCookie || sessionCookie.value.toLowerCase() !== applicationId.toLowerCase()) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
@@ -59,7 +66,7 @@ export async function POST(request: NextRequest) {
   const { data: existing } = await supabaseAdmin
     .from('assessments')
     .select('id')
-    .eq('application_id', applicationId)
+    .eq('application_id', applicationId.toLowerCase())
     .limit(1)
 
   if (existing && existing.length > 0) {
@@ -86,7 +93,7 @@ export async function POST(request: NextRequest) {
   const { data: app } = await supabaseAdmin
     .from('applications')
     .select('full_name, email')
-    .eq('id', applicationId)
+    .eq('id', applicationId.toLowerCase())
     .single()
 
   const escXml = (s: string) =>
@@ -134,30 +141,69 @@ Return ONLY valid JSON. No markdown. No explanation. No text outside the JSON ob
     messages: [{ role: 'user', content: scoringPrompt }],
   })
 
-  const rawText = message.content[0].type === 'text' ? message.content[0].text.trim() : ''
+  if (!message.content.length || message.content[0].type !== 'text') {
+    console.error('Claude scoring: unexpected response type')
+    return NextResponse.json({ error: 'Failed to score assessment' }, { status: 500 })
+  }
+
+  const rawText = message.content[0].text.trim()
+
+  // Guard against unexpectedly large responses before parsing
+  if (rawText.length > 8000) {
+    console.error('Claude scoring: response too large')
+    return NextResponse.json({ error: 'Scoring response too large' }, { status: 500 })
+  }
+
   const jsonText = rawText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
 
   let scores: ScoringResult
   try {
     scores = JSON.parse(jsonText)
   } catch {
-    console.error('Failed to parse Claude scoring response:', rawText)
+    console.error('Claude scoring: JSON parse failed')
     return NextResponse.json({ error: 'Failed to parse scoring response' }, { status: 500 })
   }
 
-  // Basic score range validation
+  // Validate integer score fields (1-5)
   const scoreFields = ['empathy_score', 'safeguarding_score', 'motivation_score', 'communication_score', 'role_expectation_score'] as const
   for (const field of scoreFields) {
     const val = scores[field]
     if (!Number.isInteger(val) || val < 1 || val > 5) {
-      console.error(`Invalid score field ${field}:`, val)
+      console.error(`Claude scoring: invalid ${field}`)
+      return NextResponse.json({ error: 'Invalid scoring response' }, { status: 500 })
+    }
+  }
+
+  // Validate computed total (must equal sum of the 5 scores)
+  const expectedTotal = scoreFields.reduce((sum, f) => sum + scores[f], 0)
+  if (!Number.isInteger(scores.total_score) || scores.total_score !== expectedTotal) {
+    console.error('Claude scoring: total_score mismatch')
+    return NextResponse.json({ error: 'Invalid scoring response' }, { status: 500 })
+  }
+
+  // Validate recommendation against strict allowlist
+  if (typeof scores.recommendation !== 'string' || !VALID_RECOMMENDATIONS.has(scores.recommendation)) {
+    console.error('Claude scoring: invalid recommendation value')
+    return NextResponse.json({ error: 'Invalid scoring response' }, { status: 500 })
+  }
+
+  // Validate free-text fields: must be strings within length bounds
+  if (typeof scores.summary !== 'string' || scores.summary.length > MAX_SUMMARY_LENGTH) {
+    console.error('Claude scoring: invalid summary')
+    return NextResponse.json({ error: 'Invalid scoring response' }, { status: 500 })
+  }
+
+  const evidenceFields = ['empathy_evidence', 'safeguarding_evidence', 'motivation_evidence', 'communication_evidence', 'role_expectation_evidence'] as const
+  for (const field of evidenceFields) {
+    if (typeof scores[field] !== 'string' || scores[field].length > MAX_EVIDENCE_LENGTH) {
+      console.error(`Claude scoring: invalid ${field}`)
       return NextResponse.json({ error: 'Invalid scoring response' }, { status: 500 })
     }
   }
 
   const { error } = await supabaseAdmin.from('assessments').upsert(
     {
-      application_id: applicationId,
+      application_id: applicationId.toLowerCase(),
       full_name: app?.full_name ?? null,
       email: app?.email ?? null,
       empathy_score: scores.empathy_score,
@@ -179,7 +225,7 @@ Return ONLY valid JSON. No markdown. No explanation. No text outside the JSON ob
   )
 
   if (error) {
-    console.error('assessments insert error:', error)
+    console.error('assessments upsert error:', error.code ?? 'unknown')
     return NextResponse.json({ error: 'Failed to save assessment' }, { status: 500 })
   }
 

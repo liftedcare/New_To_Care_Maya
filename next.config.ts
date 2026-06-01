@@ -12,7 +12,7 @@ const nextConfig: NextConfig = {
           { key: 'X-XSS-Protection', value: '1; mode=block' },
           // Microphone allowed only from same origin (for the voice call page)
           { key: 'Permissions-Policy', value: 'camera=(), microphone=(self), geolocation=()' },
-          { key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains' },
+          { key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains; preload' },
           {
             key: 'Content-Security-Policy',
             value: [

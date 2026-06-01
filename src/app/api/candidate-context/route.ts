@@ -6,27 +6,30 @@ import { supabaseAdmin } from '@/lib/supabase-server'
 
 const anthropic = new Anthropic()
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-const INJECTION_RE = /\b(ignore|disregard|instead|override|system\s*prompt|forget|new\s*instruction|assistant:|<\|im_start\|>)/i
+// Expanded injection pattern — catches common prompt injection phrasings in Claude output
+const INJECTION_RE = /\b(ignore|disregard|instead|override|system\s*prompt|forget|new\s*instruction|assistant:|<\|im_start\|>|act\s+as|pretend\s+to\s+be|you\s+are\s+now|you\s+will\s+now|following\s+instructions?|repeat\s+everything|output\s+the\s+prompt|reveal\s+your|disclose\s+your)/i
+const ALLOWED_CV_EXTS = new Set(['pdf'])
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
-  const appId = searchParams.get('appId')
+  const appId = searchParams.get('appId') ?? ''
 
-  if (!appId || !UUID_RE.test(appId)) {
+  // Length check before regex (UUIDs are exactly 36 chars)
+  if (appId.length !== 36 || !UUID_RE.test(appId)) {
     return NextResponse.json({ error: 'Invalid appId' }, { status: 400 })
   }
 
-  // Session guard — caller must have submitted this application
+  // Session guard — normalize both sides to lowercase to prevent case-sensitivity bypass
   const cookieStore = await cookies()
   const sessionCookie = cookieStore.get('appSession')
-  if (!sessionCookie || sessionCookie.value !== appId) {
+  if (!sessionCookie || sessionCookie.value.toLowerCase() !== appId.toLowerCase()) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
   const { data: app, error } = await supabaseAdmin
     .from('applications')
     .select('full_name, driving_licence, immigration_status, visa_type, other_visa_description, cv_storage_path')
-    .eq('id', appId)
+    .eq('id', appId.toLowerCase())
     .single()
 
   if (error || !app) {
@@ -54,11 +57,13 @@ export async function GET(request: NextRequest) {
         .download(app.cv_storage_path)
 
       if (fileData) {
-        const ext = app.cv_storage_path.split('.').pop()?.toLowerCase()
-        const buffer = await fileData.arrayBuffer()
-        const base64 = Buffer.from(buffer).toString('base64')
+        const ext = app.cv_storage_path.split('.').pop()?.toLowerCase() ?? ''
 
-        if (ext === 'pdf') {
+        // Only process known-safe extensions via Claude
+        if (ALLOWED_CV_EXTS.has(ext)) {
+          const buffer = await fileData.arrayBuffer()
+          const base64 = Buffer.from(buffer).toString('base64')
+
           const content: ContentBlockParam[] = [
             {
               type: 'document',
@@ -80,18 +85,19 @@ export async function GET(request: NextRequest) {
             ? cvResponse.content[0].text.trim()
             : null
 
-          if (!rawSummary || INJECTION_RE.test(rawSummary)) {
-            console.warn('CV summary failed injection screen — discarding')
+          if (!rawSummary || rawSummary.length > 2000 || INJECTION_RE.test(rawSummary)) {
+            console.warn('CV summary discarded: failed injection screen or length check')
             cvSummary = 'CV uploaded but could not be parsed'
           } else {
             cvSummary = rawSummary
           }
         } else {
-          cvSummary = 'CV uploaded in DOCX format — review manually'
+          cvSummary = 'CV uploaded — review manually'
         }
       }
-    } catch (err) {
-      console.error('CV extraction error:', err)
+    } catch {
+      // Deliberately no error details logged — CV content must not appear in logs
+      console.warn('CV extraction failed')
       cvSummary = 'CV uploaded but could not be parsed'
     }
   }
@@ -101,8 +107,7 @@ ${formLines.join('\n')}
 <cv_content>${cvSummary}</cv_content>
 ---`
 
-  return NextResponse.json({
-    candidateName: app.full_name.split(' ')[0],
-    contextBlock,
-  })
+  const response = NextResponse.json({ contextBlock })
+  response.headers.set('Cache-Control', 'no-store, no-cache')
+  return response
 }
