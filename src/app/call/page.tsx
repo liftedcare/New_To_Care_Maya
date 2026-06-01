@@ -158,7 +158,7 @@ function CallContent() {
   useEffect(() => {
     if (status.value === 'connected' && !contextSentRef.current && contextBlockRef.current) {
       contextSentRef.current = true;
-      sendSessionSettings({ system_prompt: contextBlockRef.current });
+      sendSessionSettings({ systemPrompt: contextBlockRef.current ?? undefined });
     }
     if (status.value === 'disconnected') {
       contextSentRef.current = false;
