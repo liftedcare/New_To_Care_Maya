@@ -5,10 +5,10 @@ import { Redis } from '@upstash/redis'
 // submit-application: rate-limit by IP (pre-auth)
 // authenticated routes: rate-limit by session cookie (appId) — prevents IP-rotation bypass
 const LIMITS: Record<string, { limit: number; window: Duration; bySession?: boolean }> = {
-  '/api/submit-application': { limit: 5,  window: '1 h' },
-  '/api/hume-token':         { limit: 3,  window: '1 h', bySession: true },
-  '/api/candidate-context':  { limit: 5,  window: '1 h', bySession: true },
-  '/api/save-assessment':    { limit: 3,  window: '1 h', bySession: true },
+  '/api/submit-application': { limit: 20, window: '1 h' },
+  '/api/hume-token':         { limit: 10, window: '1 h', bySession: true },
+  '/api/candidate-context':  { limit: 20, window: '1 h', bySession: true },
+  '/api/save-assessment':    { limit: 10, window: '1 h', bySession: true },
 }
 
 const redis =
